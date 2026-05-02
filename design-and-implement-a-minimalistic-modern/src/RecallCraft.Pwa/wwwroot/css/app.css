@@ -1,0 +1,350 @@
+:root {
+    color-scheme: light;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #fafaf7;
+    color: #161616;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body, #app {
+    min-height: 100%;
+    margin: 0;
+}
+
+body {
+    background: #fafaf7;
+}
+
+button, input, textarea {
+    font: inherit;
+}
+
+button {
+    border: 0;
+    border-radius: 8px;
+    background: #161616;
+    color: #fff;
+    padding: .8rem 1rem;
+}
+
+button:disabled {
+    opacity: .45;
+}
+
+input, textarea {
+    width: 100%;
+    border: 1px solid #e8e4dc;
+    border-radius: 8px;
+    background: #fff;
+    color: #161616;
+    padding: .9rem 1rem;
+    outline: 0;
+}
+
+textarea {
+    resize: vertical;
+}
+
+.screen {
+    width: min(820px, 100%);
+    min-height: 100vh;
+    margin: 0 auto;
+    padding: 1.2rem;
+}
+
+.app-header, .subnav, .sync-strip, .audio-row, .toggle-row {
+    display: flex;
+    align-items: center;
+}
+
+.app-header {
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.2rem;
+}
+
+h1, h2, p {
+    margin: 0;
+}
+
+h1 {
+    font-size: clamp(2rem, 8vw, 3.25rem);
+    letter-spacing: 0;
+}
+
+h2 {
+    font-size: 1.35rem;
+}
+
+p, small {
+    color: #77746d;
+}
+
+.icon-button, .subnav button, .sync-strip button {
+    width: 2.8rem;
+    height: 2.8rem;
+    padding: 0;
+}
+
+.panel, .empty, .module-hero, .editable-card, .learning-panel, .writing-card {
+    border: 1px solid #e8e4dc;
+    border-radius: 8px;
+    background: #fff;
+    margin-bottom: 16px;
+}
+
+.card-divider {
+    height: 1px;
+    background-color: #e0e0e0;
+    margin: 0 12px;
+}
+
+.panel, .empty, .module-hero, .learning-panel, .writing-card {
+    display: grid;
+    gap: 1rem;
+    padding: 1.1rem;
+}
+
+.auth-panel {
+    margin-top: 18vh;
+}
+
+.toolbar, .cloud-settings {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: .7rem;
+    margin-bottom: 1rem;
+}
+
+.cloud-settings {
+    grid-template-columns: 1fr 1fr auto;
+}
+
+.list, .cards-list {
+    display: grid;
+    gap: .7rem;
+    overflow-y: auto;
+}
+
+.row-button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    border: 1px solid #e8e4dc;
+    background: #fff;
+    color: #161616;
+    text-align: left;
+    padding: 1rem;
+}
+
+.module-row span:first-child {
+    display: grid;
+    gap: .25rem;
+}
+
+.subnav {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: .8rem;
+    margin-bottom: 1rem;
+}
+
+.module-screen {
+    padding-bottom: 2rem;
+}
+
+.module-hero {
+    margin-bottom: 1rem;
+    box-shadow: 0 18px 50px rgba(22, 22, 22, .08);
+}
+
+.module-title-input {
+    border: 0;
+    padding: 0;
+    font-size: clamp(2rem, 9vw, 3.5rem);
+    font-weight: 750;
+    background: transparent;
+}
+
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: .7rem;
+}
+
+.metric-grid span {
+    display: grid;
+    gap: .2rem;
+    min-width: 0;
+}
+
+.metric-grid strong {
+    font-size: 1rem;
+}
+
+.progress-track {
+    height: .45rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #eeeae2;
+}
+
+.progress-track span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: #2f6f62;
+}
+
+.sync-strip {
+    justify-content: space-between;
+    gap: .7rem;
+    color: #77746d;
+}
+
+.sync-dot {
+    width: .55rem;
+    height: .55rem;
+    border-radius: 999px;
+    background: #77746d;
+}
+
+.sync-dot.syncing {
+    background: #315f8c;
+}
+
+.sync-dot.synced {
+    background: #2f6f62;
+}
+
+.sync-dot.error {
+    background: #6b3e3e;
+}
+
+.editable-card {
+    display: grid;
+    gap: .45rem;
+    padding: .8rem;
+}
+
+.editable-card input, .editable-card textarea {
+    border: 0;
+    padding: .2rem;
+    background: transparent;
+}
+
+.card-front {
+    font-weight: 700;
+    font-size: 1.05rem;
+    border: none;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.card-back {
+    min-height: 3.2rem;
+    color: #77746d;
+    border: none;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.add-card-button {
+    width: 100%;
+    background: #fff;
+    color: #161616;
+    border: 1px solid #e8e4dc;
+}
+
+.add-card-button {
+    min-height: 3.4rem;
+    font-size: 1.6rem;
+}
+
+.scroll-sentinel {
+    min-height: 1px;
+}
+
+.learning-panel {
+    position: sticky;
+    bottom: .7rem;
+    margin-top: 1rem;
+    box-shadow: 0 18px 50px rgba(22, 22, 22, .08);
+}
+
+.toggle-row {
+    justify-content: space-between;
+}
+
+.toggle-row input {
+    width: auto;
+}
+
+.learning-actions, .grade-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: .6rem;
+}
+
+.learning-view {
+    display: grid;
+    gap: 1rem;
+}
+
+.learning-card {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    min-height: 52vh;
+    border: 1px solid #e8e4dc;
+    background: #fff;
+    color: #161616;
+    font-size: clamp(1.7rem, 8vw, 3rem);
+    line-height: 1.2;
+    text-align: center;
+    transition: transform 180ms ease;
+}
+
+.learning-card.flipped {
+    transform: rotateY(8deg);
+}
+
+.audio-icon {
+    position: absolute;
+    top: .8rem;
+    right: .8rem;
+    width: 2.6rem;
+    height: 2.6rem;
+    padding: 0;
+}
+
+.again {
+    background: #6b3e3e;
+}
+
+.hard {
+    background: #7b6843;
+}
+
+.good {
+    background: #2f6f62;
+}
+
+.easy {
+    background: #315f8c;
+}
+
+#blazor-error-ui {
+    display: none;
+}
+
+@media (min-width: 720px) {
+    .learning-actions, .grade-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}

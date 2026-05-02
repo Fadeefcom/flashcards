@@ -1,0 +1,183 @@
+@page "/"
+@inject LibraryService Library
+@inject SyncScheduler SyncScheduler
+@inject RecallCraft.Application.Abstractions.ISecureCredentialStore Credentials
+@inject RecallCraft.Application.Abstractions.ICloudConfigurationStore CloudConfiguration
+@inject NavigationManager Navigation
+
+<PageTitle>Flashcards</PageTitle>
+
+<section class="screen">
+    <header class="app-header">
+        <div>
+            <h1>Flashcards</h1>
+            <p>@Status</p>
+        </div>
+        <button class="icon-button" @onclick="ForceSync" title="Sync">↻</button>
+        <button type="button" @onclick="PullHierarchyAsync" disabled="@_isPulling">
+            Pull Cloud Entities
+        </button>
+    </header>
+
+    @if (!HasApiKey)
+    {
+        <section class="panel auth-panel">
+            <h2>API Key</h2>
+            <p>Enter your Azure Function URL and function key to enable real sync and audio generation.</p>
+            <input placeholder="Function URL, e.g. https://your-app.azurewebsites.net/api" @bind="FunctionBaseUrl" />
+            <input placeholder="Function key" type="password" @bind="ApiKey" />
+            <button @onclick="SaveApiKey" disabled="@string.IsNullOrWhiteSpace(ApiKey)">Continue</button>
+        </section>
+    }
+    else if (CurrentFolder is null)
+    {
+        <section class="cloud-settings">
+            <input placeholder="Azure Function URL" @bind="FunctionBaseUrl" />
+            <input placeholder="Function key" type="password" @bind="ApiKey" />
+            <button @onclick="SaveCloudSettings">Save</button>
+        </section>
+
+        <section class="toolbar">
+            <input placeholder="New folder" @bind="NewFolderName" @bind:event="oninput" />
+            <button @onclick="AddFolder" disabled="@string.IsNullOrWhiteSpace(NewFolderName)">Add</button>
+        </section>
+
+        <section class="list">
+            @foreach (var folder in Folders)
+            {
+                <button class="row-button" @onclick="() => SelectFolder(folder)">
+                    <span>@folder.Name</span>
+                    <span>›</span>
+                </button>
+            }
+        </section>
+    }
+    else
+    {
+        <nav class="subnav">
+            <button @onclick="BackToFolders" title="Back">‹</button>
+            <strong>@CurrentFolder.Name</strong>
+        </nav>
+
+        <section class="toolbar">
+            <input placeholder="New module" @bind="NewModuleName" @bind:event="oninput" />
+            <button @onclick="AddModule" disabled="@string.IsNullOrWhiteSpace(NewModuleName)">Add</button>
+        </section>
+
+        <section class="list">
+            @foreach (var module in Modules)
+            {
+                <button class="row-button module-row" @onclick="() => OpenModule(module)">
+                    <span>
+                        <strong>@module.Name</strong>
+                        <small>Due @module.NextReviewDate.LocalDateTime.ToString("MMM d, HH:mm")</small>
+                    </span>
+                    <span>›</span>
+                </button>
+            }
+        </section>
+    }
+</section>
+
+@code {
+    private bool HasApiKey;
+    private bool _isPulling;
+    private string ApiKey = string.Empty;
+    private string FunctionBaseUrl = string.Empty;
+    private string NewFolderName = string.Empty;
+    private string NewModuleName = string.Empty;
+    private string Status = "Offline-first study";
+    private List<Folder> Folders = [];
+    private List<Module> Modules = [];
+    private Folder? CurrentFolder;
+
+    protected override async Task OnInitializedAsync()
+    {
+        HasApiKey = !string.IsNullOrWhiteSpace(await Credentials.GetApiKeyAsync(CancellationToken.None));
+        ApiKey = await Credentials.GetApiKeyAsync(CancellationToken.None) ?? string.Empty;
+        FunctionBaseUrl = await CloudConfiguration.GetFunctionBaseUrlAsync(CancellationToken.None);
+        await LoadFolders();
+        if (HasApiKey)
+        {
+            _ = ForceSync();
+        }
+    }
+
+    private async Task SaveApiKey()
+    {
+        await SaveCloudSettings();
+        HasApiKey = true;
+        await ForceSync();
+    }
+
+    private async Task SaveCloudSettings()
+    {
+        await CloudConfiguration.SaveFunctionBaseUrlAsync(FunctionBaseUrl, CancellationToken.None);
+        await Credentials.SaveApiKeyAsync(ApiKey, CancellationToken.None);
+        HasApiKey = true;
+        Status = "Cloud settings saved";
+    }
+
+    private async Task ForceSync()
+    {
+        var result = await SyncScheduler.ForceSync(CancellationToken.None);
+        Status = result.Message;
+        await LoadFolders();
+        if (CurrentFolder is not null)
+        {
+            Modules = (await Library.GetModulesAsync(CurrentFolder.Id, CancellationToken.None)).ToList();
+        }
+    }
+
+    private async Task PullHierarchyAsync()
+    {
+        _isPulling = true;
+        StateHasChanged();
+
+        try
+        {
+            await SyncScheduler.PullRemote(CancellationToken.None);
+        }
+        finally
+        {
+            _isPulling = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadFolders() =>
+        Folders = (await Library.GetFoldersAsync(CancellationToken.None)).ToList();
+
+    private async Task AddFolder()
+    {
+        await Library.CreateFolderAsync(NewFolderName, CancellationToken.None);
+        NewFolderName = string.Empty;
+        await LoadFolders();
+    }
+
+    private async Task SelectFolder(Folder folder)
+    {
+        CurrentFolder = folder;
+        Modules = (await Library.GetModulesAsync(folder.Id, CancellationToken.None)).ToList();
+    }
+
+    private void BackToFolders()
+    {
+        CurrentFolder = null;
+        Modules = [];
+    }
+
+    private async Task AddModule()
+    {
+        if (CurrentFolder is null)
+        {
+            return;
+        }
+
+        await Library.CreateModuleAsync(CurrentFolder.Id, NewModuleName, CancellationToken.None);
+        NewModuleName = string.Empty;
+        Modules = (await Library.GetModulesAsync(CurrentFolder.Id, CancellationToken.None)).ToList();
+    }
+
+    private void OpenModule(Module module) => Navigation.NavigateTo($"/module/{module.Id}");
+}

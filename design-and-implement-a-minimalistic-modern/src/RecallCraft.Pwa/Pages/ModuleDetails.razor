@@ -1,0 +1,220 @@
+@page "/module/{ModuleId:guid}"
+@inject ModuleViewModel ViewModel
+@inject NavigationManager Navigation
+@inject IJSRuntime Js
+@implements IAsyncDisposable
+
+<PageTitle>@(ViewModel.Module?.Name ?? "Module") - Flashcards</PageTitle>
+
+<section class="screen module-screen">
+    @if (ViewModel.Module is null)
+    {
+        <section class="empty">
+            <h2>Module not found</h2>
+        </section>
+    }
+    else if (ViewModel.LearningMode == LearningMode.None)
+    {
+        <nav class="subnav">
+            <button @onclick="GoHome" title="Back">‹</button>
+            <strong>Module</strong>
+        </nav>
+
+        <header class="module-hero">
+            <input class="module-title-input" value="@ViewModel.Module.Name" @onchange="RenameModule" aria-label="Module name" />
+            <div class="metric-grid">
+                <span>
+                    <small>Created</small>
+                    <strong>@CreatedDate</strong>
+                </span>
+                <span>
+                    <small>Words</small>
+                    <strong>@ViewModel.TotalWordsCount</strong>
+                </span>
+                <span>
+                    <small>Progress</small>
+                    <strong>@ViewModel.LearningProgress%</strong>
+                </span>
+            </div>
+            <div class="progress-track">
+                <span style="width:@ViewModel.LearningProgress%"></span>
+            </div>
+            <div class="sync-strip">
+                <span class="sync-dot @ViewModel.SyncStatus.ToString().ToLowerInvariant()"></span>
+                <span>@SyncLabel</span>
+                <button @onclick="ForceSync" title="Sync">↻</button>
+            </div>
+        </header>
+        
+        <section class="learning-panel">
+            <label class="toggle-row">
+                <span>Flip mode</span>
+                <input type="checkbox" @bind="ViewModel.FlipLearningSides" />
+            </label>
+            <div class="learning-actions">
+                <button @onclick="() => StartLearning(LearningMode.Card)">Card Mode</button>
+                <button @onclick="() => StartLearning(LearningMode.Writing)">Writing Mode</button>
+            </div>
+        </section>
+
+        <section class="cards-list" @onscroll="HandleScroll">
+            @foreach (var card in ViewModel.VisibleCards)
+            {
+                <article class="editable-card">
+                    <input class="card-front" placeholder="Front" @bind="card.FrontText" @bind:event="oninput" @onblur="() => SaveCard(card)" />
+                    <div class="card-divider"></div>
+                    <textarea class="card-back" placeholder="Back" @bind="card.BackText" @bind:event="oninput" @onblur="() => SaveCard(card)"></textarea>
+                </article>
+            }
+
+            <div class="scroll-sentinel" @ref="ScrollSentinel"></div>
+            <button class="add-card-button" @onclick="CreateCard">+</button>
+        </section>
+
+    }
+    else
+    {
+        <section class="learning-view">
+            <nav class="subnav">
+                <button @onclick="StopLearning" title="Back">‹</button>
+                <strong>@(ViewModel.LearningMode == LearningMode.Card ? "Card Mode" : "Writing Mode")</strong>
+            </nav>
+
+            @if (ViewModel.CurrentLearningCard is null)
+            {
+                <section class="empty">
+                    <h2>Session complete</h2>
+                    <button @onclick="StopLearning">Done</button>
+                </section>
+            }
+            else if (ViewModel.LearningMode == LearningMode.Card)
+            {
+                <button class="learning-card @(ViewModel.IsAnswerVisible ? "flipped" : null)" @onclick="FlipCard">
+                    <button class="audio-icon" @onclick:stopPropagation="true" @onclick="PlayAudio" title="Play audio">♪</button>
+                    <span>@(ViewModel.IsAnswerVisible ? ViewModel.AnswerText(ViewModel.CurrentLearningCard) : ViewModel.PromptText(ViewModel.CurrentLearningCard))</span>
+                </button>
+                <div class="grade-grid">
+                    <button class="again" @onclick="() => Grade(ReviewGrade.Again)">Again</button>
+                    <button class="hard" @onclick="() => Grade(ReviewGrade.Hard)">Hard</button>
+                    <button class="good" @onclick="() => Grade(ReviewGrade.Good)">Good</button>
+                    <button class="easy" @onclick="() => Grade(ReviewGrade.Easy)">Easy</button>
+                </div>
+            }
+            else
+            {
+                <article class="writing-card">
+                    <strong>@ViewModel.PromptText(ViewModel.CurrentLearningCard)</strong>
+                    <input placeholder="Type answer" @bind="ViewModel.WritingAnswer" @bind:event="oninput" />
+                    <button @onclick="SubmitWriting">Check</button>
+                    @if (!string.IsNullOrWhiteSpace(ViewModel.WritingResult))
+                    {
+                        <p>@ViewModel.WritingResult</p>
+                    }
+                </article>
+            }
+        </section>
+    }
+</section>
+
+@code {
+    [Parameter]
+    public Guid ModuleId { get; set; }
+
+    private ElementReference ScrollSentinel;
+    private DotNetObjectReference<ModuleDetails>? ObjectReference;
+    private IJSObjectReference? InfiniteScrollObserver;
+
+    private string CreatedDate =>
+        ((ViewModel.Module?.CreatedAt == default ? ViewModel.Module?.UpdatedAt : ViewModel.Module?.CreatedAt) ?? DateTimeOffset.UtcNow)
+        .LocalDateTime
+        .ToString("MMM d, yyyy");
+
+    private string SyncLabel => ViewModel.SyncStatus switch
+    {
+        ModuleSyncStatus.NotSynced => "Not Synced",
+        ModuleSyncStatus.Syncing => "Syncing",
+        ModuleSyncStatus.Synced => "Synced",
+        ModuleSyncStatus.Error => "Error",
+        _ => "Not Synced"
+    };
+
+    protected override async Task OnParametersSetAsync() =>
+        await ViewModel.LoadAsync(ModuleId, CancellationToken.None);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            ObjectReference = DotNetObjectReference.Create(this);
+            InfiniteScrollObserver = await Js.InvokeAsync<IJSObjectReference>("recallCraft.observeInfiniteScroll", ScrollSentinel, ObjectReference);
+        }
+    }
+
+    private void GoHome() => Navigation.NavigateTo("/");
+
+    private async Task RenameModule(ChangeEventArgs args)
+    {
+        await ViewModel.RenameModuleAsync(args.Value?.ToString() ?? string.Empty, CancellationToken.None);
+        StateHasChanged();
+    }
+
+    private async Task SaveCard(Card card)
+    {
+        await ViewModel.UpdateCardAsync(card, CancellationToken.None);
+        StateHasChanged();
+    }
+
+    private async Task CreateCard()
+    {
+        await ViewModel.CreateCardAsync(CancellationToken.None);
+        StateHasChanged();
+    }
+
+    private async Task ForceSync()
+    {
+        await ViewModel.ForceSyncAsync(CancellationToken.None);
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void LoadMoreCards()
+    {
+        if (ViewModel.HasMoreCards)
+        {
+            ViewModel.LoadMoreCards();
+            StateHasChanged();
+        }
+    }
+
+    private void HandleScroll() { }
+
+    private void StartLearning(LearningMode mode) => ViewModel.StartLearning(mode);
+
+    private void StopLearning() => ViewModel.StopLearning();
+
+    private void FlipCard() => ViewModel.FlipCard();
+
+    private async Task PlayAudio() => await ViewModel.PlayAudioAsync(CancellationToken.None);
+
+    private async Task Grade(ReviewGrade grade)
+    {
+        await ViewModel.GradeCurrentAsync(grade, CancellationToken.None);
+        StateHasChanged();
+    }
+
+    private async Task SubmitWriting()
+    {
+        await ViewModel.SubmitWritingAsync(CancellationToken.None);
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (InfiniteScrollObserver is not null)
+        {
+            await InfiniteScrollObserver.DisposeAsync();
+        }
+
+        ObjectReference?.Dispose();
+    }
+}
