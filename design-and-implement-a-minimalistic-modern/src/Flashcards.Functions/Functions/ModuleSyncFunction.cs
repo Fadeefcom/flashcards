@@ -1,171 +1,150 @@
-﻿using System.Net;
-using System.Text.Json;
-using Azure.Storage.Blobs;
-using Azure.Storage.Sas;
-using Flashcards.Functions.Models;
-using Microsoft.Azure.Functions.Worker;
-using Microsoft.Azure.Functions.Worker.Http;
-using Microsoft.Extensions.Logging;
+﻿using System.Net.Http.Json;
+using RecallCraft.Application.Abstractions;
+using RecallCraft.Domain.Entities;
 
-namespace Flashcards.Functions.Functions;
+namespace RecallCraft.Pwa.Services;
 
-public sealed class ModuleSyncFunction
+public sealed class AzureFunctionCloudSyncClient(HttpClient httpClient, ICloudConfigurationStore configuration) : ICloudSyncClient
 {
-    private readonly BlobServiceClient _blobServiceClient;
-    private readonly ILogger<ModuleSyncFunction> _logger;
-    private readonly string _containerName = Environment.GetEnvironmentVariable("ContainerName") ?? "flashcards";
-    private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
-
-    public ModuleSyncFunction(BlobServiceClient blobServiceClient, ILogger<ModuleSyncFunction> logger)
-    {
-        _blobServiceClient = blobServiceClient;
-        _logger = logger;
-    }
-
-    [Function("SyncModule")]
-    public async Task<HttpResponseData> Run(
-        [HttpTrigger(AuthorizationLevel.Function, "post", "get", Route = "modules/sync")] HttpRequestData req,
+    public async Task<ModuleSyncSnapshot> SyncModuleAsync(
+        string functionKey,
+        Module module,
+        IReadOnlyList<Card> localCards,
+        DateTimeOffset? lastKnownUpdate,
         CancellationToken cancellationToken)
     {
-        var request = await ReadRequestAsync(req, cancellationToken);
-        if (request is null || request.ModuleId == Guid.Empty)
+        var request = new ModuleSyncRequest(
+            module.Id,
+            lastKnownUpdate,
+            localCards.Select(ToCloudCard).ToList());
+
+        using var message = new HttpRequestMessage(HttpMethod.Post, await BuildUrlAsync("modules/cards/sync", cancellationToken))
         {
-            return req.CreateResponse(HttpStatusCode.BadRequest);
-        }
-
-        var container = _blobServiceClient.GetBlobContainerClient(_containerName);
-        await container.CreateIfNotExistsAsync(cancellationToken: cancellationToken);
-
-        var blob = container.GetBlobClient(GetModuleCardsBlobName(request.ModuleId));
-        var remoteCards = await ReadRemoteCardsAsync(blob, cancellationToken);
-
-        if (request.LocalCards is { Count: > 0 })
-        {
-            remoteCards = MergeCards(remoteCards, request.LocalCards);
-            await WriteRemoteCardsAsync(blob, remoteCards, cancellationToken);
-        }
-
-        DateTimeOffset? moduleLastUpdated = remoteCards.Count == 0 ? null : remoteCards.Max(card => card.LastUpdated);
-        var responseCards = await EnrichAudioStateAsync(container, remoteCards, cancellationToken);
-
-        _logger.LogInformation("Synced module {ModuleId}. Returned {CardCount} card(s).", request.ModuleId, responseCards.Count);
-
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new ModuleSyncResponse(
-            request.ModuleId,
-            DateTimeOffset.UtcNow,
-            moduleLastUpdated,
-            responseCards), cancellationToken);
-        return response;
-    }
-
-    private async Task<ModuleSyncRequest?> ReadRequestAsync(HttpRequestData req, CancellationToken cancellationToken)
-    {
-        if (req.Method.Equals("GET", StringComparison.OrdinalIgnoreCase))
-        {
-            var query = ParseQuery(req.Url.Query);
-            return query.TryGetValue("moduleId", out var value) && Guid.TryParse(value, out var moduleId)
-                ? new ModuleSyncRequest(moduleId)
-                : null;
-        }
-
-        return await req.ReadFromJsonAsync<ModuleSyncRequest>(cancellationToken);
-    }
-
-    private static Dictionary<string, string> ParseQuery(string query)
-    {
-        return query.TrimStart('?')
-            .Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(part => part.Split('=', 2))
-            .Where(parts => parts.Length == 2)
-            .ToDictionary(
-                parts => Uri.UnescapeDataString(parts[0]),
-                parts => Uri.UnescapeDataString(parts[1]),
-                StringComparer.OrdinalIgnoreCase);
-    }
-
-    private async Task<List<ModuleCardSyncItem>> ReadRemoteCardsAsync(BlobClient blob, CancellationToken cancellationToken)
-    {
-        if (!await blob.ExistsAsync(cancellationToken))
-        {
-            return [];
-        }
-
-        await using var stream = await blob.OpenReadAsync(cancellationToken: cancellationToken);
-        return await JsonSerializer.DeserializeAsync<List<ModuleCardSyncItem>>(stream, _jsonOptions, cancellationToken) ?? [];
-    }
-
-    private async Task WriteRemoteCardsAsync(
-        BlobClient blob,
-        IReadOnlyList<ModuleCardSyncItem> cards,
-        CancellationToken cancellationToken)
-    {
-        await using var stream = new MemoryStream();
-        await JsonSerializer.SerializeAsync(stream, cards, _jsonOptions, cancellationToken);
-        stream.Position = 0;
-        await blob.UploadAsync(stream, overwrite: true, cancellationToken);
-    }
-
-    private static List<ModuleCardSyncItem> MergeCards(
-        IReadOnlyList<ModuleCardSyncItem> remoteCards,
-        IReadOnlyList<ModuleCardSyncItem> localCards)
-    {
-        var merged = remoteCards.ToDictionary(card => card.Id);
-        foreach (var localCard in localCards)
-        {
-            if (!merged.TryGetValue(localCard.Id, out var remoteCard) || localCard.LastUpdated >= remoteCard.LastUpdated)
-            {
-                merged[localCard.Id] = localCard;
-            }
-        }
-
-        return merged.Values.OrderBy(card => card.LastUpdated).ToList();
-    }
-
-    private static string GetModuleCardsBlobName(Guid moduleId) => $"modules/{moduleId:N}/cards.json";
-
-    private static async Task<List<ModuleCardSyncItem>> EnrichAudioStateAsync(
-        BlobContainerClient container,
-        IReadOnlyList<ModuleCardSyncItem> cards,
-        CancellationToken cancellationToken)
-    {
-        var enrichedCards = new List<ModuleCardSyncItem>(cards.Count);
-        foreach (var card in cards.OrderBy(card => card.LastUpdated))
-        {
-            var audioBlob = container.GetBlobClient(SpeechFunction.GetAudioBlobName(card.Id));
-            if (!await audioBlob.ExistsAsync(cancellationToken))
-            {
-                enrichedCards.Add(card);
-                continue;
-            }
-
-            var properties = await audioBlob.GetPropertiesAsync(cancellationToken: cancellationToken);
-            enrichedCards.Add(card with
-            {
-                AudioStatus = "Ready",
-                AudioUrl = CreateAudioUrl(audioBlob) ?? card.AudioUrl,
-                AudioUpdatedAt = properties.Value.LastModified
-            });
-        }
-
-        return enrichedCards;
-    }
-
-    private static string? CreateAudioUrl(BlobClient audioBlob)
-    {
-        if (!audioBlob.CanGenerateSasUri)
-        {
-            return null;
-        }
-
-        var builder = new BlobSasBuilder
-        {
-            BlobContainerName = audioBlob.BlobContainerName,
-            BlobName = audioBlob.Name,
-            Resource = "b",
-            ExpiresOn = DateTimeOffset.UtcNow.AddHours(2)
+            Content = JsonContent.Create(request)
         };
-        builder.SetPermissions(BlobSasPermissions.Read);
-        return audioBlob.GenerateSasUri(builder).ToString();
+        AddFunctionKey(message, functionKey);
+
+        using var response = await httpClient.SendAsync(message, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var snapshot = await response.Content.ReadFromJsonAsync<ModuleSyncSnapshot>(cancellationToken);
+        return snapshot ?? throw new InvalidOperationException("Module sync returned an empty response.");
     }
+
+    public async Task<HierarchySnapshot> SyncHierarchyAsync(
+        string functionKey,
+        IReadOnlyList<Folder> localFolders,
+        IReadOnlyList<Module> localModules,
+        CancellationToken cancellationToken)
+    {
+        var request = new HierarchySyncRequest(
+            localFolders.Select(ToCloudFolder).ToList(),
+            localModules.Select(ToCloudModule).ToList());
+
+        using var message = new HttpRequestMessage(HttpMethod.Post, await BuildUrlAsync("hierarchy/sync", cancellationToken))
+        {
+            Content = JsonContent.Create(request)
+        };
+        AddFunctionKey(message, functionKey);
+
+        using var response = await httpClient.SendAsync(message, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var snapshot = await response.Content.ReadFromJsonAsync<HierarchySnapshot>(cancellationToken);
+        return snapshot ?? new HierarchySnapshot([], []);
+    }
+
+    public async Task<HierarchySnapshot> PullHierarchyAsync(string functionKey, DateTimeOffset? lastKnownUpdate, CancellationToken cancellationToken)
+    {
+        var queryString = lastKnownUpdate.HasValue ? $"?since={lastKnownUpdate.Value:O}" : string.Empty;
+        var url = await BuildUrlAsync($"hierarchy/sync{queryString}", cancellationToken);
+
+        using var message = new HttpRequestMessage(HttpMethod.Get, url);
+        AddFunctionKey(message, functionKey);
+
+        using var response = await httpClient.SendAsync(message, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var snapshot = await response.Content.ReadFromJsonAsync<HierarchySnapshot>(cancellationToken);
+        return snapshot ?? new HierarchySnapshot([], []);
+    }
+
+    public async Task<Stream> GenerateSpeechAsync(
+        string functionKey,
+        Guid cardId,
+        string text,
+        CancellationToken cancellationToken)
+    {
+        using var message = new HttpRequestMessage(HttpMethod.Post, await BuildUrlAsync("GenerateSpeech", cancellationToken))
+        {
+            Content = JsonContent.Create(new TtsRequest(text, cardId))
+        };
+        AddFunctionKey(message, functionKey);
+
+        var response = await httpClient.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStreamAsync(cancellationToken);
+    }
+
+    public async Task<Stream> DownloadAudioAsync(
+        string functionKey,
+        string audioUrl,
+        CancellationToken cancellationToken)
+    {
+        using var message = new HttpRequestMessage(HttpMethod.Get, audioUrl);
+
+        var response = await httpClient.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStreamAsync(cancellationToken);
+    }
+
+    private async Task<string> BuildUrlAsync(string path, CancellationToken cancellationToken)
+    {
+        var baseUrl = await configuration.GetFunctionBaseUrlAsync(cancellationToken);
+        return $"{baseUrl.TrimEnd('/')}/{path.TrimStart('/')}";
+    }
+
+    private static CloudCard ToCloudCard(Card card) => new(
+        card.Id,
+        card.ModuleId,
+        card.FrontText,
+        card.BackText,
+        card.UpdatedAt,
+        card.AudioStatus.ToString(),
+        null,
+        null,
+        card.IsDeleted);
+
+    private static CloudFolder ToCloudFolder(Folder folder) => new(
+        folder.Id,
+        folder.Name,
+        folder.ParentId,
+        folder.UpdatedAt,
+        folder.IsDeleted);
+
+    private static CloudModule ToCloudModule(Module module) => new(
+        module.Id,
+        module.FolderId,
+        module.Name,
+        module.UpdatedAt,
+        module.IsDeleted);
+
+    private static void AddFunctionKey(HttpRequestMessage message, string functionKey)
+    {
+        if (!string.IsNullOrWhiteSpace(functionKey))
+        {
+            message.Headers.TryAddWithoutValidation("x-functions-key", functionKey);
+        }
+    }
+
+    private sealed record ModuleSyncRequest(
+        Guid ModuleId,
+        DateTimeOffset? LastKnownUpdate,
+        IReadOnlyList<CloudCard> LocalCards);
+
+    private sealed record HierarchySyncRequest(
+        IReadOnlyList<CloudFolder> LocalFolders,
+        IReadOnlyList<CloudModule> LocalModules);
+
+    private sealed record TtsRequest(string Text, Guid CardId);
 }

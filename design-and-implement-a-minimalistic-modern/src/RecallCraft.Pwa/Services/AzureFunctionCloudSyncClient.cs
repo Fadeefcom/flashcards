@@ -18,7 +18,7 @@ public sealed class AzureFunctionCloudSyncClient(HttpClient httpClient, ICloudCo
             lastKnownUpdate,
             localCards.Select(ToCloudCard).ToList());
 
-        using var message = new HttpRequestMessage(HttpMethod.Post, await BuildUrlAsync("modules/sync", cancellationToken))
+        using var message = new HttpRequestMessage(HttpMethod.Post, await BuildUrlAsync("modules/cards/sync", cancellationToken))
         {
             Content = JsonContent.Create(request)
         };
@@ -29,6 +29,44 @@ public sealed class AzureFunctionCloudSyncClient(HttpClient httpClient, ICloudCo
 
         var snapshot = await response.Content.ReadFromJsonAsync<ModuleSyncSnapshot>(cancellationToken);
         return snapshot ?? throw new InvalidOperationException("Module sync returned an empty response.");
+    }
+
+    public async Task<HierarchySnapshot> SyncHierarchyAsync(
+        string functionKey,
+        IReadOnlyList<Folder> localFolders,
+        IReadOnlyList<Module> localModules,
+        CancellationToken cancellationToken)
+    {
+        var request = new HierarchySyncRequest(
+            localFolders.Select(ToCloudFolder).ToList(),
+            localModules.Select(ToCloudModule).ToList());
+
+        using var message = new HttpRequestMessage(HttpMethod.Post, await BuildUrlAsync("hierarchy/sync", cancellationToken))
+        {
+            Content = JsonContent.Create(request)
+        };
+        AddFunctionKey(message, functionKey);
+
+        using var response = await httpClient.SendAsync(message, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var snapshot = await response.Content.ReadFromJsonAsync<HierarchySnapshot>(cancellationToken);
+        return snapshot ?? new HierarchySnapshot([], []);
+    }
+
+    public async Task<HierarchySnapshot> PullHierarchyAsync(string functionKey, DateTimeOffset? lastKnownUpdate, CancellationToken cancellationToken)
+    {
+        var queryString = lastKnownUpdate.HasValue ? $"?since={lastKnownUpdate.Value:O}" : string.Empty;
+        var url = await BuildUrlAsync($"hierarchy/sync{queryString}", cancellationToken);
+
+        using var message = new HttpRequestMessage(HttpMethod.Get, url);
+        AddFunctionKey(message, functionKey);
+
+        using var response = await httpClient.SendAsync(message, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var snapshot = await response.Content.ReadFromJsonAsync<HierarchySnapshot>(cancellationToken);
+        return snapshot ?? new HierarchySnapshot([], []);
     }
 
     public async Task<Stream> GenerateSpeechAsync(
@@ -74,7 +112,22 @@ public sealed class AzureFunctionCloudSyncClient(HttpClient httpClient, ICloudCo
         card.UpdatedAt,
         card.AudioStatus.ToString(),
         null,
-        null);
+        null,
+        card.IsDeleted);
+
+    private static CloudFolder ToCloudFolder(Folder folder) => new(
+        folder.Id,
+        folder.Name,
+        folder.ParentId,
+        folder.UpdatedAt,
+        folder.IsDeleted);
+
+    private static CloudModule ToCloudModule(Module module) => new(
+        module.Id,
+        module.FolderId,
+        module.Name,
+        module.UpdatedAt,
+        module.IsDeleted);
 
     private static void AddFunctionKey(HttpRequestMessage message, string functionKey)
     {
@@ -84,25 +137,14 @@ public sealed class AzureFunctionCloudSyncClient(HttpClient httpClient, ICloudCo
         }
     }
 
-    public async Task<HierarchySnapshot> PullHierarchyAsync(string functionKey, DateTimeOffset? lastKnownUpdate, CancellationToken cancellationToken)
-    {
-        var queryString = lastKnownUpdate.HasValue ? $"?since={lastKnownUpdate.Value:O}" : string.Empty;
-        var url = await BuildUrlAsync($"hierarchy/sync{queryString}", cancellationToken);
-
-        using var message = new HttpRequestMessage(HttpMethod.Get, url);
-        AddFunctionKey(message, functionKey);
-
-        using var response = await httpClient.SendAsync(message, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var snapshot = await response.Content.ReadFromJsonAsync<HierarchySnapshot>(cancellationToken);
-        return snapshot ?? new HierarchySnapshot([], []);
-    }
-
     private sealed record ModuleSyncRequest(
         Guid ModuleId,
         DateTimeOffset? LastKnownUpdate,
         IReadOnlyList<CloudCard> LocalCards);
+
+    private sealed record HierarchySyncRequest(
+        IReadOnlyList<CloudFolder> LocalFolders,
+        IReadOnlyList<CloudModule> LocalModules);
 
     private sealed record TtsRequest(string Text, Guid CardId);
 }

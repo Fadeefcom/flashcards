@@ -25,13 +25,19 @@ public interface ICloudSyncClient
     public Task<HierarchySnapshot> PullHierarchyAsync(string functionKey, DateTimeOffset? lastKnownUpdate, CancellationToken cancellationToken);
 }
 
-public sealed record CloudFolder(Guid Id, string Name, DateTimeOffset LastUpdated);
+public sealed record CloudFolder(
+    Guid Id,
+    string Name,
+    Guid? ParentId,
+    DateTimeOffset LastUpdated,
+    bool IsDeleted);
 
 public sealed record CloudModule(
     Guid Id,
     Guid FolderId,
     string Name,
-    DateTimeOffset LastUpdated);
+    DateTimeOffset LastUpdated,
+    bool IsDeleted);
 
 public sealed record HierarchySnapshot(
     IReadOnlyList<CloudFolder> Folders,
@@ -51,4 +57,5 @@ public sealed record CloudCard(
     DateTimeOffset LastUpdated,
     string AudioStatus,
     string? AudioUrl,
-    DateTimeOffset? AudioUpdatedAt);
+    DateTimeOffset? AudioUpdatedAt,
+    bool IsDeleted);

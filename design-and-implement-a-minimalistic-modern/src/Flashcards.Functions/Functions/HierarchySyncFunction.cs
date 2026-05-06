@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text.Json;
+using Azure;
 using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 using Flashcards.Functions.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -30,19 +32,33 @@ public sealed class HierarchySyncFunction
         await container.CreateIfNotExistsAsync(cancellationToken: cancellationToken);
 
         var blob = container.GetBlobClient("hierarchy.json");
-        var remoteHierarchy = await ReadRemoteHierarchyAsync(blob, cancellationToken);
+        HierarchySnapshot remoteHierarchy;
 
-        if (req.Method.Equals("POST", StringComparison.OrdinalIgnoreCase))
+        var request = req.Method.Equals("POST", StringComparison.OrdinalIgnoreCase)
+            ? await req.ReadFromJsonAsync<HierarchySyncRequest>(cancellationToken)
+            : null;
+
+        while (true)
         {
-            var request = await req.ReadFromJsonAsync<HierarchySyncRequest>(cancellationToken);
+            var (currentHierarchy, eTag) = await ReadRemoteHierarchyAsync(blob, cancellationToken);
+            remoteHierarchy = currentHierarchy;
+
             if (request is not null)
             {
                 var mergedFolders = MergeFolders(remoteHierarchy.Folders, request.LocalFolders ?? []);
                 var mergedModules = MergeModules(remoteHierarchy.Modules, request.LocalModules ?? []);
 
                 remoteHierarchy = new HierarchySnapshot(mergedFolders, mergedModules);
-                await WriteRemoteHierarchyAsync(blob, remoteHierarchy, cancellationToken);
+                try
+                {
+                    await WriteRemoteHierarchyAsync(blob, remoteHierarchy, eTag, cancellationToken);
+                }
+                catch (RequestFailedException ex) when (ex.Status == (int)HttpStatusCode.PreconditionFailed)
+                {
+                    continue;
+                }
             }
+            break;
         }
 
         _logger.LogInformation("Synced hierarchy. Returned {FolderCount} folders, {ModuleCount} modules.", remoteHierarchy.Folders.Count, remoteHierarchy.Modules.Count);
@@ -52,26 +68,38 @@ public sealed class HierarchySyncFunction
         return response;
     }
 
-    private async Task<HierarchySnapshot> ReadRemoteHierarchyAsync(BlobClient blob, CancellationToken cancellationToken)
+    private async Task<(HierarchySnapshot Snapshot, ETag? ETag)> ReadRemoteHierarchyAsync(BlobClient blob, CancellationToken cancellationToken)
     {
-        if (!await blob.ExistsAsync(cancellationToken))
+        try
         {
-            return new HierarchySnapshot([], []);
+            var response = await blob.DownloadContentAsync(cancellationToken);
+            var snapshot = JsonSerializer.Deserialize<HierarchySnapshot>(response.Value.Content, _jsonOptions)
+                           ?? new HierarchySnapshot([], []);
+            return (snapshot, response.Value.Details.ETag);
         }
-
-        await using var stream = await blob.OpenReadAsync(cancellationToken: cancellationToken);
-        return await JsonSerializer.DeserializeAsync<HierarchySnapshot>(stream, _jsonOptions, cancellationToken) ?? new HierarchySnapshot([], []);
+        catch (RequestFailedException ex) when (ex.Status == (int)HttpStatusCode.NotFound)
+        {
+            return (new HierarchySnapshot([], []), null);
+        }
     }
 
     private async Task WriteRemoteHierarchyAsync(
         BlobClient blob,
         HierarchySnapshot hierarchy,
+        ETag? eTag,
         CancellationToken cancellationToken)
     {
-        await using var stream = new MemoryStream();
+        using var stream = new MemoryStream();
         await JsonSerializer.SerializeAsync(stream, hierarchy, _jsonOptions, cancellationToken);
         stream.Position = 0;
-        await blob.UploadAsync(stream, overwrite: true, cancellationToken);
+
+        var conditions = eTag.HasValue
+            ? new BlobRequestConditions { IfMatch = eTag.Value }
+            : new BlobRequestConditions { IfNoneMatch = ETag.All };
+
+        var options = new BlobUploadOptions { Conditions = conditions };
+
+        await blob.UploadAsync(stream, options, cancellationToken);
     }
 
     private static List<CloudFolder> MergeFolders(
