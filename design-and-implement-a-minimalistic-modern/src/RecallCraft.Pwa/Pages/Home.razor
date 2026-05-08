@@ -14,9 +14,6 @@
             <p>@Status</p>
         </div>
         <button class="icon-button" @onclick="ForceSync" title="Sync">↻</button>
-        <button type="button" @onclick="PullHierarchyAsync" disabled="@_isPulling">
-            Pull Cloud Entities
-        </button>
     </header>
 
     @if (!HasApiKey)
@@ -45,10 +42,13 @@
         <section class="list">
             @foreach (var folder in Folders)
             {
-                <button class="row-button" @onclick="() => SelectFolder(folder)">
-                    <span>@folder.Name</span>
-                    <span>›</span>
-                </button>
+                <div class="row-container" style="display: flex; gap: 8px; align-items: center;">
+                    <button class="row-button" style="flex: 1;" @onclick="() => SelectFolder(folder)">
+                        <span>@folder.Name</span>
+                        <span>›</span>
+                    </button>
+                    <button class="icon-button" @onclick="() => DeleteFolder(folder)" @onclick:stopPropagation="true" title="Delete Folder">🗑</button>
+                </div>
             }
         </section>
     }
@@ -67,13 +67,16 @@
         <section class="list">
             @foreach (var module in Modules)
             {
-                <button class="row-button module-row" @onclick="() => OpenModule(module)">
-                    <span>
-                        <strong>@module.Name</strong>
-                        <small>Due @module.NextReviewDate.LocalDateTime.ToString("MMM d, HH:mm")</small>
-                    </span>
-                    <span>›</span>
-                </button>
+                <div class="row-container" style="display: flex; gap: 8px; align-items: center;">
+                    <button class="row-button module-row" style="flex: 1;" @onclick="() => OpenModule(module)">
+                        <span>
+                            <strong>@module.Name</strong>
+                            <small>Due @module.NextReviewDate.LocalDateTime.ToString("MMM d, HH:mm")</small>
+                        </span>
+                        <span>›</span>
+                    </button>
+                    <button class="icon-button" @onclick="() => DeleteModule(module)" @onclick:stopPropagation="true" title="Delete Module">🗑</button>
+                </div>
             }
         </section>
     }
@@ -155,6 +158,16 @@
         await LoadFolders();
     }
 
+    private async Task DeleteFolder(Folder folder)
+    {
+        await Library.DeleteAsync(folder.Id, SyncEntityType.Folder, CancellationToken.None);
+        if (CurrentFolder?.Id == folder.Id)
+        {
+            BackToFolders();
+        }
+        await LoadFolders();
+    }
+
     private async Task SelectFolder(Folder folder)
     {
         CurrentFolder = folder;
@@ -177,6 +190,15 @@
         await Library.CreateModuleAsync(CurrentFolder.Id, NewModuleName, CancellationToken.None);
         NewModuleName = string.Empty;
         Modules = (await Library.GetModulesAsync(CurrentFolder.Id, CancellationToken.None)).ToList();
+    }
+
+    private async Task DeleteModule(Module module)
+    {
+        await Library.DeleteAsync(module.Id, SyncEntityType.Module, CancellationToken.None);
+        if (CurrentFolder is not null)
+        {
+            Modules = (await Library.GetModulesAsync(CurrentFolder.Id, CancellationToken.None)).ToList();
+        }
     }
 
     private void OpenModule(Module module) => Navigation.NavigateTo($"/module/{module.Id}");

@@ -134,6 +134,18 @@ public sealed class ModuleViewModel(LibraryService library, StudyService study, 
         WritingResult = string.Empty;
     }
 
+    public async Task DeleteModuleAsync(CancellationToken cancellationToken)
+    {
+        if (Module is null)
+        {
+            return;
+        }
+
+        await library.DeleteAsync(Module.Id, SyncEntityType.Module, cancellationToken);
+
+        Module = null;
+    }
+
     public void FlipCard() => IsAnswerVisible = !IsAnswerVisible;
 
     public async Task PlayAudioAsync(CancellationToken cancellationToken)

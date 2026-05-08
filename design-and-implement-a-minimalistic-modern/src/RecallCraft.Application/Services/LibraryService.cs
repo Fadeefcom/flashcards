@@ -92,11 +92,5 @@ public sealed class LibraryService(ILocalStorageService storage)
     public async Task DeleteAsync(Guid entityId, SyncEntityType entityType, CancellationToken cancellationToken)
     {
         await storage.MarkDeletedAsync(entityId, entityType.ToString(), cancellationToken);
-        await storage.EnqueueSyncAsync(new SyncQueueItem
-        {
-            EntityId = entityId,
-            EntityType = entityType,
-            Operation = SyncOperation.Delete
-        }, cancellationToken);
     }
 }

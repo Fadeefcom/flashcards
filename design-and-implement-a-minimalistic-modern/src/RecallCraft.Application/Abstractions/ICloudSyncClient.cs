@@ -23,6 +23,12 @@ public interface ICloudSyncClient
         CancellationToken cancellationToken);
 
     public Task<HierarchySnapshot> PullHierarchyAsync(string functionKey, DateTimeOffset? lastKnownUpdate, CancellationToken cancellationToken);
+
+    Task<HierarchySnapshot> SyncHierarchyAsync(
+    string functionKey,
+    IReadOnlyList<Folder> localFolders,
+    IReadOnlyList<Module> localModules,
+    CancellationToken cancellationToken);
 }
 
 public sealed record CloudFolder(

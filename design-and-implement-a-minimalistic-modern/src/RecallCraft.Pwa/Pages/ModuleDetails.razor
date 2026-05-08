@@ -21,7 +21,11 @@
         </nav>
 
         <header class="module-hero">
-            <input class="module-title-input" value="@ViewModel.Module.Name" @onchange="RenameModule" aria-label="Module name" />
+            <div style="display: flex; gap: 8px; align-items: center; width: 100%;">
+                <input class="module-title-input" value="@ViewModel.Module.Name" @onchange="RenameModule" aria-label="Module name" style="flex: 1;" />
+                <button class="icon-button" @onclick="DeleteModule" title="Delete Module">🗑</button>
+            </div>
+            
             <div class="metric-grid">
                 <span>
                     <small>Created</small>
@@ -156,6 +160,12 @@
     {
         await ViewModel.RenameModuleAsync(args.Value?.ToString() ?? string.Empty, CancellationToken.None);
         StateHasChanged();
+    }
+
+    private async Task DeleteModule()
+    {
+        await ViewModel.DeleteModuleAsync(CancellationToken.None);
+        Navigation.NavigateTo("/");
     }
 
     private async Task SaveCard(Card card)

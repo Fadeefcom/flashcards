@@ -23,6 +23,18 @@ public sealed class BrowserLocalStorageService(IJSRuntime js) : ILocalStorageSer
         return db.Folders.Where(x => !x.IsDeleted).OrderBy(x => x.Name).ToList();
     }
 
+    public async Task<IReadOnlyList<Folder>> GetAllFoldersAsync(CancellationToken cancellationToken)
+    {
+        var db = await LoadAsync(cancellationToken);
+        return db.Folders.ToList();
+    }
+
+    public async Task<Folder?> GetFolderAsync(Guid folderId, CancellationToken cancellationToken)
+    {
+        var db = await LoadAsync(cancellationToken);
+        return db.Folders.FirstOrDefault(x => x.Id == folderId && !x.IsDeleted);
+    }
+
     public async Task<Module?> GetModuleAsync(Guid moduleId, CancellationToken cancellationToken)
     {
         var db = await LoadAsync(cancellationToken);
@@ -39,10 +51,22 @@ public sealed class BrowserLocalStorageService(IJSRuntime js) : ILocalStorageSer
             .ToList();
     }
 
+    public async Task<IReadOnlyList<Module>> GetAllModulesAsync(CancellationToken cancellationToken)
+    {
+        var db = await LoadAsync(cancellationToken);
+        return db.Modules.ToList();
+    }
+
     public async Task<IReadOnlyList<Card>> GetCardsByModuleAsync(Guid moduleId, CancellationToken cancellationToken)
     {
         var db = await LoadAsync(cancellationToken);
         return db.Cards.Where(x => x.ModuleId == moduleId && !x.IsDeleted).OrderBy(x => x.FrontText).ToList();
+    }
+
+    public async Task<IReadOnlyList<Card>> GetAllCardsByModuleAsync(Guid moduleId, CancellationToken cancellationToken)
+    {
+        var db = await LoadAsync(cancellationToken);
+        return db.Cards.Where(x => x.ModuleId == moduleId).ToList();
     }
 
     public async Task<Card?> GetCardAsync(Guid cardId, CancellationToken cancellationToken)
@@ -75,6 +99,7 @@ public sealed class BrowserLocalStorageService(IJSRuntime js) : ILocalStorageSer
             {
                 entity.IsDeleted = true;
                 entity.MarkDirty();
+                entity.UpdatedAt = DateTimeOffset.UtcNow;
             }
         }, cancellationToken);
 
@@ -159,11 +184,5 @@ public sealed class BrowserLocalStorageService(IJSRuntime js) : ILocalStorageSer
         {
             items.Add(value);
         }
-    }
-
-    public async Task<Folder?> GetFolderAsync(Guid folderId, CancellationToken cancellationToken)
-    {
-        var db = await LoadAsync(cancellationToken);
-        return db.Folders.FirstOrDefault(x => x.Id == folderId && !x.IsDeleted);
     }
 }

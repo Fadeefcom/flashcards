@@ -7,6 +7,7 @@ public abstract class EntityBase
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public bool IsDirty { get; set; }
     public bool IsDeleted { get; set; }
+    public Guid? ParentId { get; set; }
 
     public void MarkDirty()
     {
