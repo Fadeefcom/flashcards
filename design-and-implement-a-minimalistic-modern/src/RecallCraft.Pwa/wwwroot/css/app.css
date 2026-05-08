@@ -219,14 +219,23 @@ p, small {
 .stage-chart i {
     display: block;
     width: 100%;
-    min-height: .35rem;
+    min-height: 0;
     border-radius: 6px 6px 2px 2px;
     background: #2f6f62;
     opacity: .35;
 }
 
+.stage-chart i.empty {
+    background: transparent;
+    opacity: 0;
+}
+
 .stage-chart span:last-child i {
     opacity: 1;
+}
+
+.stage-chart span:last-child i.empty {
+    opacity: 0;
 }
 
 .stage-chart small {

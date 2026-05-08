@@ -28,8 +28,8 @@
             
             <div class="metric-grid">
                 <span>
-                    <small>Created</small>
-                    <strong>@CreatedDate</strong>
+                    <small>@ViewModel.StageDateLabel</small>
+                    <strong>@ViewModel.StageDateText</strong>
                 </span>
                 <span>
                     <small>Words</small>
@@ -42,15 +42,6 @@
             </div>
             <div class="progress-track">
                 <span style="width:@ViewModel.LearningProgress%"></span>
-            </div>
-            <div class="stage-chart" aria-label="Learning progress graph">
-                @foreach (var stage in ViewModel.LearningStageStats)
-                {
-                    <span title="@($"Stage {stage.Stage}: {stage.Count}")">
-                        <i style="height:@StageHeight(stage.Count)%"></i>
-                        <small>@stage.Stage</small>
-                    </span>
-                }
             </div>
             <div class="sync-strip">
                 <span class="sync-dot @ViewModel.SyncStatus.ToString().ToLowerInvariant()"></span>
@@ -97,7 +88,8 @@
             @if (ViewModel.CurrentLearningCard is null)
             {
                 <section class="empty">
-                    <h2>Session complete</h2>
+                    <h2>@ViewModel.SessionCompleteTitle</h2>
+                    <p>@ViewModel.SessionCompleteText</p>
                     <button @onclick="StopLearning">Done</button>
                 </section>
             }
@@ -140,11 +132,6 @@
     private DotNetObjectReference<ModuleDetails>? ObjectReference;
     private IJSObjectReference? InfiniteScrollObserver;
 
-    private string CreatedDate =>
-        ((ViewModel.Module?.CreatedAt == default ? ViewModel.Module?.UpdatedAt : ViewModel.Module?.CreatedAt) ?? DateTimeOffset.UtcNow)
-        .LocalDateTime
-        .ToString("MMM d, yyyy");
-
     private string SyncLabel => ViewModel.SyncStatus switch
     {
         ModuleSyncStatus.NotSynced => "Not Synced",
@@ -156,7 +143,7 @@
 
     private int MaxStageCount => Math.Max(1, ViewModel.LearningStageStats.Max(x => x.Count));
 
-    private int StageHeight(int count) => Math.Max(8, (int)Math.Round(count * 100d / MaxStageCount));
+    private int StageHeight(int count) => count == 0 ? 0 : Math.Max(8, (int)Math.Round(count * 100d / MaxStageCount));
 
     protected override async Task OnParametersSetAsync() =>
         await ViewModel.LoadAsync(ModuleId, CancellationToken.None);
