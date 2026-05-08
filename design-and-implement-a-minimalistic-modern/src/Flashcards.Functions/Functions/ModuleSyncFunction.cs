@@ -16,6 +16,7 @@ public sealed class ModuleSyncFunction
     private readonly BlobServiceClient _blobServiceClient;
     private readonly ILogger<ModuleSyncFunction> _logger;
     private readonly string _containerName = Environment.GetEnvironmentVariable("ContainerName") ?? "flashcards";
+    private readonly string _audioCacheVersion = Environment.GetEnvironmentVariable("AudioCacheVersion") ?? "v2";
     private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     public ModuleSyncFunction(BlobServiceClient blobServiceClient, ILogger<ModuleSyncFunction> logger)
@@ -62,7 +63,7 @@ public sealed class ModuleSyncFunction
         }
 
         DateTimeOffset? moduleLastUpdated = remoteCards.Count == 0 ? null : remoteCards.Max(card => card.LastUpdated);
-        var responseCards = await EnrichAudioStateAsync(container, remoteCards, cancellationToken);
+        var responseCards = await EnrichAudioStateAsync(container, remoteCards, _audioCacheVersion, cancellationToken);
         var moduleInfo = ModuleInfoFunction.CreateModuleInfo(request.ModuleId, remoteCards);
         await ModuleInfoFunction.WriteModuleInfoAsync(
             container.GetBlobClient(ModuleInfoFunction.GetModuleInfoBlobName(request.ModuleId)),
@@ -160,11 +161,12 @@ public sealed class ModuleSyncFunction
     private static async Task<List<ModuleCardSyncItem>> EnrichAudioStateAsync(
         BlobContainerClient container,
         IReadOnlyList<ModuleCardSyncItem> cards,
+        string audioCacheVersion,
         CancellationToken cancellationToken)
     {
         var tasks = cards.Select(async card =>
         {
-            var audioBlob = container.GetBlobClient(SpeechFunction.GetAudioBlobName(card.Id));
+            var audioBlob = container.GetBlobClient(SpeechFunction.GetAudioBlobName(card.Id, audioCacheVersion));
             try
             {
                 var properties = await audioBlob.GetPropertiesAsync(cancellationToken: cancellationToken);

@@ -17,6 +17,12 @@ public sealed class SpeechFunction
     private readonly string _speechKey = Environment.GetEnvironmentVariable("SpeechKey") ?? string.Empty;
     private readonly string _speechRegion = Environment.GetEnvironmentVariable("SpeechRegion") ?? "francecentral";
     private readonly string _containerName = Environment.GetEnvironmentVariable("ContainerName") ?? "flashcards";
+    private readonly string _voiceName = Environment.GetEnvironmentVariable("SpeechVoiceName") ?? "pt-PT-FernandaNeural";
+    private readonly string _voiceLocale = Environment.GetEnvironmentVariable("SpeechVoiceLocale") ?? "pt-PT";
+    private readonly string _speechRate = Environment.GetEnvironmentVariable("SpeechRate") ?? "-15%";
+    private readonly string _speechPitch = Environment.GetEnvironmentVariable("SpeechPitch") ?? "+0%";
+    private readonly string _outputFormat = Environment.GetEnvironmentVariable("SpeechOutputFormat") ?? "audio-24khz-160kbitrate-mono-mp3";
+    private readonly string _audioCacheVersion = Environment.GetEnvironmentVariable("AudioCacheVersion") ?? "v2";
 
     public SpeechFunction(
         IHttpClientFactory httpClientFactory,
@@ -48,7 +54,7 @@ public sealed class SpeechFunction
         var blobContainer = _blobServiceClient.GetBlobContainerClient(_containerName);
         await blobContainer.CreateIfNotExistsAsync(cancellationToken: cancellationToken);
 
-        var blobClient = blobContainer.GetBlobClient(GetAudioBlobName(data.CardId));
+        var blobClient = blobContainer.GetBlobClient(GetAudioBlobName(data.CardId, _audioCacheVersion));
         if (await blobClient.ExistsAsync(cancellationToken))
         {
             var stream = await blobClient.OpenReadAsync(cancellationToken: cancellationToken);
@@ -64,21 +70,22 @@ public sealed class SpeechFunction
         return await CreateAudioResponse(req, new MemoryStream(audioContent), cancellationToken);
     }
 
-    public static string GetAudioBlobName(Guid cardId) => $"audio/{cardId:N}.mp3";
+    public static string GetAudioBlobName(Guid cardId, string cacheVersion = "v2") => $"audio/{cacheVersion}/{cardId:N}.mp3";
 
     private async Task<byte[]> RequestTtsStreamAsync(string text, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, GetTtsEndpoint());
         request.Headers.Add("Ocp-Apim-Subscription-Key", _speechKey);
-        request.Headers.Add("X-Microsoft-OutputFormat", "audio-16khz-128kbitrate-mono-mp3");
+        request.Headers.Add("X-Microsoft-OutputFormat", _outputFormat);
         request.Headers.UserAgent.ParseAdd("FlashcardsAzureFunction");
 
-        var escapedText = SecurityElement.Escape(text);
+        var speakableText = BuildSpeakableText(text);
         var ssml = $"""
-        <speak version="1.0" xml:lang="pt-PT">
-            <voice xml:lang="pt-PT" xml:gender="Male" name="pt-PT-DuarteNeural">
-            <break time="200ms"/>        
-                {escapedText}
+        <speak version="1.0" xml:lang="{_voiceLocale}">
+            <voice xml:lang="{_voiceLocale}" name="{_voiceName}">
+                <prosody rate="{_speechRate}" pitch="{_speechPitch}">
+                    {speakableText}
+                </prosody>
             </voice>
         </speak>
         """;
@@ -93,6 +100,19 @@ public sealed class SpeechFunction
 
     private Uri GetTtsEndpoint() =>
         new($"https://{_speechRegion}.tts.speech.microsoft.com/cognitiveservices/v1");
+
+    private static string BuildSpeakableText(string text)
+    {
+        var normalizedText = string.Join(' ', text.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        var words = normalizedText.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (words.Length is > 1 and <= 6 && !normalizedText.Any(char.IsPunctuation))
+        {
+            return string.Join(" <break time=\"140ms\"/> ", words.Select(word => SecurityElement.Escape(word)));
+        }
+
+        return SecurityElement.Escape(normalizedText) ?? string.Empty;
+    }
 
     private static async Task<HttpResponseData> CreateAudioResponse(
         HttpRequestData req,

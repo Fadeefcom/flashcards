@@ -32,7 +32,7 @@ Open `http://localhost:5173` on this computer. From an iPhone on the same Wi-Fi,
 
 On iPhone, open the URL in Safari, tap Share, then tap **Add to Home Screen**.
 
-For full PWA install/offline service-worker behavior on iPhone, host the published app over HTTPS:
+For full PWA install/offline service-worker behavior on iPhone, host the published app over HTTPS. A LAN URL like `http://192.168...` is fine for testing while online, but iOS Safari will not reliably register/use a service worker there.
 
 ```powershell
 dotnet publish src\RecallCraft.Pwa\Flashcards.Pwa.csproj -c Release
@@ -45,6 +45,10 @@ Configure `src\Flashcards.Functions\local.settings.json` for local development:
 - `AzureWebJobsStorage` - storage account or Azurite connection string.
 - `SpeechKey` - Azure AI Speech key.
 - `SpeechRegion` - speech region, default `francecentral`.
+- `SpeechVoiceName` - Azure Speech voice, default `pt-PT-FernandaNeural`. You can also try `pt-PT-DuarteNeural` or `pt-PT-RaquelNeural`.
+- `SpeechRate` - default `-15%` for clearer term pronunciation.
+- `SpeechOutputFormat` - default `audio-24khz-160kbitrate-mono-mp3` for better quality than 16 kHz.
+- `AudioCacheVersion` - bump this value, for example `v3`, when you change voice/rate and want new MP3 files generated instead of reusing old blobs.
 - `ContainerName` - blob container, default `flashcards`.
 
 Run locally with Azure Functions Core Tools:

@@ -4,6 +4,10 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111111" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Flashcards" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>Flashcards</title>
     <base href="/" />
     <link rel="stylesheet" href="css/app.css" />
@@ -25,7 +29,11 @@
 
     <script src="_framework/blazor.webassembly.js"></script>
     <script src="recallcraft.js"></script>
-    <script>navigator.serviceWorker.register('service-worker.js');</script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('service-worker.js');
+        }
+    </script>
 </body>
 
 </html>

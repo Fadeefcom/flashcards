@@ -5,6 +5,12 @@
     "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
     "SpeechKey": "",
     "SpeechRegion": "francecentral",
+    "SpeechVoiceName": "pt-PT-FernandaNeural",
+    "SpeechVoiceLocale": "pt-PT",
+    "SpeechRate": "-15%",
+    "SpeechPitch": "+0%",
+    "SpeechOutputFormat": "audio-24khz-160kbitrate-mono-mp3",
+    "AudioCacheVersion": "v2",
     "ContainerName": "flashcards"
   },
   "Host": {
