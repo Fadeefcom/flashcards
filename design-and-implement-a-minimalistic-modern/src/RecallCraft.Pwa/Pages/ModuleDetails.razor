@@ -32,7 +32,7 @@
                     <strong>@ViewModel.StageDateText</strong>
                 </span>
                 <span>
-                    <small>Words</small>
+                    <small>Cards</small>
                     <strong>@ViewModel.TotalWordsCount</strong>
                 </span>
                 <span>
@@ -65,6 +65,7 @@
             @foreach (var card in ViewModel.VisibleCards)
             {
                 <article class="editable-card">
+                    <button class="delete-card-button" @onclick="() => DeleteCard(card)" title="Delete card">×</button>
                     <input class="card-front" placeholder="Front" @bind="card.FrontText" @bind:event="oninput" @onblur="() => SaveCard(card)" />
                     <div class="card-divider"></div>
                     <textarea class="card-back" placeholder="Back" @bind="card.BackText" @bind:event="oninput" @onblur="() => SaveCard(card)"></textarea>
@@ -174,6 +175,12 @@
     private async Task SaveCard(Card card)
     {
         await ViewModel.UpdateCardAsync(card, CancellationToken.None);
+        StateHasChanged();
+    }
+
+    private async Task DeleteCard(Card card)
+    {
+        await ViewModel.DeleteCardAsync(card, CancellationToken.None);
         StateHasChanged();
     }
 

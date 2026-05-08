@@ -43,7 +43,7 @@ public sealed class ModuleViewModel(LibraryService library, StudyService study, 
     public int SessionRemainingCount => _learningQueue.Count + (CurrentLearningCard is null ? 0 : 1);
     public bool HasAnyCards => _allCards.Any(card => !card.IsDeleted);
 
-    public int TotalWordsCount => _allCards.Sum(card => CountWords(card.FrontText) + CountWords(card.BackText));
+    public int TotalWordsCount => _allCards.Count;
 
     public int LearningProgress
     {
@@ -135,6 +135,21 @@ public sealed class ModuleViewModel(LibraryService library, StudyService study, 
     public async Task UpdateCardAsync(Card card, CancellationToken cancellationToken)
     {
         await library.SaveCardAsync(card, cancellationToken);
+        SyncStatus = ModuleSyncStatus.NotSynced;
+    }
+
+    public async Task DeleteCardAsync(Card card, CancellationToken cancellationToken)
+    {
+        await library.DeleteAsync(card.Id, SyncEntityType.Card, cancellationToken);
+        _allCards.RemoveAll(x => x.Id == card.Id);
+        VisibleCards.RemoveAll(x => x.Id == card.Id);
+        _learningQueue.RemoveAll(x => x == card.Id);
+        _sessionMastery.Remove(card.Id);
+        if (CurrentLearningCard?.Id == card.Id)
+        {
+            CurrentLearningCard = DequeueNextLearningCard();
+        }
+
         SyncStatus = ModuleSyncStatus.NotSynced;
     }
 
