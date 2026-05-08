@@ -10,6 +10,8 @@ public sealed class Card : EntityBase
     public AudioStatus AudioStatus { get; set; } = AudioStatus.None;
     public string? AudioLocalPath { get; set; }
     public DateTimeOffset? LastReviewed { get; set; }
+    public DateTimeOffset? NextLearningReviewAt { get; set; }
+    public DateTimeOffset? MasteredAt { get; set; }
     public int Interval { get; set; }
     public double EaseFactor { get; set; } = 2.5;
 }

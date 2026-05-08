@@ -43,6 +43,15 @@
             <div class="progress-track">
                 <span style="width:@ViewModel.LearningProgress%"></span>
             </div>
+            <div class="stage-chart" aria-label="Learning progress graph">
+                @foreach (var stage in ViewModel.LearningStageStats)
+                {
+                    <span title="@($"Stage {stage.Stage}: {stage.Count}")">
+                        <i style="height:@StageHeight(stage.Count)%"></i>
+                        <small>@stage.Stage</small>
+                    </span>
+                }
+            </div>
             <div class="sync-strip">
                 <span class="sync-dot @ViewModel.SyncStatus.ToString().ToLowerInvariant()"></span>
                 <span>@SyncLabel</span>
@@ -82,6 +91,7 @@
             <nav class="subnav">
                 <button @onclick="StopLearning" title="Back">‹</button>
                 <strong>@(ViewModel.LearningMode == LearningMode.Card ? "Card Mode" : "Writing Mode")</strong>
+                <small>@ViewModel.SessionMasteredCount/@ViewModel.SessionTotalCount</small>
             </nav>
 
             @if (ViewModel.CurrentLearningCard is null)
@@ -93,10 +103,12 @@
             }
             else if (ViewModel.LearningMode == LearningMode.Card)
             {
-                <button class="learning-card @(ViewModel.IsAnswerVisible ? "flipped" : null)" @onclick="FlipCard">
-                    <button class="audio-icon" @onclick:stopPropagation="true" @onclick="PlayAudio" title="Play audio">♪</button>
-                    <span>@(ViewModel.IsAnswerVisible ? ViewModel.AnswerText(ViewModel.CurrentLearningCard) : ViewModel.PromptText(ViewModel.CurrentLearningCard))</span>
-                </button>
+                <div class="learning-card-wrap">
+                    <button class="learning-card @(ViewModel.IsAnswerVisible ? "flipped" : null)" @onclick="FlipCard">
+                        <span>@(ViewModel.IsAnswerVisible ? ViewModel.AnswerText(ViewModel.CurrentLearningCard) : ViewModel.PromptText(ViewModel.CurrentLearningCard))</span>
+                    </button>
+                    <button class="audio-icon" @onclick="PlayAudio" title="Play audio">♪</button>
+                </div>
                 <div class="grade-grid">
                     <button class="again" @onclick="() => Grade(ReviewGrade.Again)">Again</button>
                     <button class="hard" @onclick="() => Grade(ReviewGrade.Hard)">Hard</button>
@@ -141,6 +153,10 @@
         ModuleSyncStatus.Error => "Error",
         _ => "Not Synced"
     };
+
+    private int MaxStageCount => Math.Max(1, ViewModel.LearningStageStats.Max(x => x.Count));
+
+    private int StageHeight(int count) => Math.Max(8, (int)Math.Round(count * 100d / MaxStageCount));
 
     protected override async Task OnParametersSetAsync() =>
         await ViewModel.LoadAsync(ModuleId, CancellationToken.None);
@@ -204,7 +220,11 @@
 
     private void FlipCard() => ViewModel.FlipCard();
 
-    private async Task PlayAudio() => await ViewModel.PlayAudioAsync(CancellationToken.None);
+    private async Task PlayAudio()
+    {
+        await Js.InvokeVoidAsync("recallCraft.primeAudio");
+        await ViewModel.PlayAudioAsync(CancellationToken.None);
+    }
 
     private async Task Grade(ReviewGrade grade)
     {

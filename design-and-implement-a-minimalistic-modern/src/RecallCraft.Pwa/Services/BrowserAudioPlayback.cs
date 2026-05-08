@@ -9,7 +9,7 @@ public sealed class BrowserAudioPlayback(IJSRuntime js) : IAudioPlayback
     {
         using var memory = new MemoryStream();
         await audioStream.CopyToAsync(memory, cancellationToken);
-        var dataUrl = $"data:audio/mp4;base64,{Convert.ToBase64String(memory.ToArray())}";
+        var dataUrl = $"data:audio/mpeg;base64,{Convert.ToBase64String(memory.ToArray())}";
         await js.InvokeVoidAsync("recallCraft.playDataUrl", cancellationToken, dataUrl);
     }
 }

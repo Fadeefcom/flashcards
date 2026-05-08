@@ -89,6 +89,9 @@ public sealed class LibraryService(ILocalStorageService storage)
         }, cancellationToken);
     }
 
+    public Task SaveModuleLearningProgressAsync(Module module, CancellationToken cancellationToken) =>
+        storage.UpsertModuleAsync(module, cancellationToken);
+
     public async Task DeleteAsync(Guid entityId, SyncEntityType entityType, CancellationToken cancellationToken)
     {
         await storage.MarkDeletedAsync(entityId, entityType.ToString(), cancellationToken);

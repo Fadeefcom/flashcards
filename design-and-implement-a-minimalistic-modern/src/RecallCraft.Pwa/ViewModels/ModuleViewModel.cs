@@ -1,6 +1,7 @@
 using RecallCraft.Application.Services;
 using RecallCraft.Domain.Entities;
 using RecallCraft.Domain.Enums;
+using RecallCraft.Domain.Services;
 
 namespace RecallCraft.Pwa.ViewModels;
 
@@ -22,7 +23,10 @@ public enum LearningMode
 public sealed class ModuleViewModel(LibraryService library, StudyService study, AudioService audio, SyncScheduler syncScheduler)
 {
     private const int PageSize = 30;
+    private const int SessionMasteryTarget = 2;
     private List<Card> _allCards = [];
+    private readonly Queue<Guid> _learningQueue = new();
+    private readonly Dictionary<Guid, int> _sessionMastery = [];
 
     public Module? Module { get; private set; }
     public List<Card> VisibleCards { get; } = [];
@@ -33,6 +37,9 @@ public sealed class ModuleViewModel(LibraryService library, StudyService study, 
     public string WritingAnswer { get; set; } = string.Empty;
     public string WritingResult { get; private set; } = string.Empty;
     public Card? CurrentLearningCard { get; private set; }
+    public int SessionTotalCount { get; private set; }
+    public int SessionMasteredCount => _sessionMastery.Count(x => x.Value >= SessionMasteryTarget);
+    public int SessionRemainingCount => _learningQueue.Count + (CurrentLearningCard is null ? 0 : 1);
 
     public int TotalWordsCount => _allCards.Sum(card => CountWords(card.FrontText) + CountWords(card.BackText));
 
@@ -45,10 +52,15 @@ public sealed class ModuleViewModel(LibraryService library, StudyService study, 
                 return 0;
             }
 
-            var reviewed = _allCards.Count(card => card.LastReviewed is not null && card.Interval > 0);
-            return (int)Math.Round(reviewed * 100d / _allCards.Count);
+            var totalStage = _allCards.Sum(card => Math.Clamp(card.Interval, 0, SpacedRepetitionScheduler.MasteredStage));
+            return (int)Math.Round(totalStage * 100d / (_allCards.Count * SpacedRepetitionScheduler.MasteredStage));
         }
     }
+
+    public IReadOnlyList<LearningStageStat> LearningStageStats =>
+        Enumerable.Range(0, SpacedRepetitionScheduler.MasteredStage + 1)
+            .Select(stage => new LearningStageStat(stage, _allCards.Count(card => Math.Clamp(card.Interval, 0, SpacedRepetitionScheduler.MasteredStage) == stage)))
+            .ToList();
 
     public bool HasMoreCards => VisibleCards.Count < _allCards.Count;
 
@@ -120,7 +132,7 @@ public sealed class ModuleViewModel(LibraryService library, StudyService study, 
     public void StartLearning(LearningMode mode)
     {
         LearningMode = mode;
-        CurrentLearningCard = _allCards.FirstOrDefault();
+        StartSessionQueue();
         IsAnswerVisible = false;
         WritingAnswer = string.Empty;
         WritingResult = string.Empty;
@@ -132,6 +144,10 @@ public sealed class ModuleViewModel(LibraryService library, StudyService study, 
         IsAnswerVisible = false;
         WritingAnswer = string.Empty;
         WritingResult = string.Empty;
+        CurrentLearningCard = null;
+        _learningQueue.Clear();
+        _sessionMastery.Clear();
+        SessionTotalCount = 0;
     }
 
     public async Task DeleteModuleAsync(CancellationToken cancellationToken)
@@ -163,12 +179,34 @@ public sealed class ModuleViewModel(LibraryService library, StudyService study, 
             return;
         }
 
-        await study.ReviewAsync(CurrentLearningCard.Id, grade, cancellationToken);
-        _allCards.Remove(CurrentLearningCard);
-        VisibleCards.Remove(CurrentLearningCard);
-        CurrentLearningCard = _allCards.FirstOrDefault();
+        var reviewedCardId = CurrentLearningCard.Id;
+        var updatedCard = await study.ReviewAsync(reviewedCardId, grade, cancellationToken);
+        if (updatedCard is not null)
+        {
+            ReplaceCard(updatedCard);
+        }
+
+        var score = _sessionMastery.GetValueOrDefault(reviewedCardId);
+        score = grade switch
+        {
+            ReviewGrade.Easy => SessionMasteryTarget,
+            ReviewGrade.Good => Math.Min(SessionMasteryTarget, score + 1),
+            ReviewGrade.Hard => 0,
+            ReviewGrade.Again => 0,
+            _ => score
+        };
+
+        _sessionMastery[reviewedCardId] = score;
+        if (score < SessionMasteryTarget)
+        {
+            _learningQueue.Enqueue(reviewedCardId);
+        }
+
+        CurrentLearningCard = DequeueNextLearningCard();
         IsAnswerVisible = false;
-        SyncStatus = ModuleSyncStatus.NotSynced;
+        WritingAnswer = string.Empty;
+
+        await CompleteModuleIfMasteredAsync(cancellationToken);
     }
 
     public async Task SubmitWritingAsync(CancellationToken cancellationToken)
@@ -192,4 +230,65 @@ public sealed class ModuleViewModel(LibraryService library, StudyService study, 
         value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
 
     private static string Normalize(string value) => string.Join(' ', value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+
+    private void StartSessionQueue()
+    {
+        _learningQueue.Clear();
+        _sessionMastery.Clear();
+
+        var cards = _allCards.Where(card => !card.IsDeleted).ToList();
+        foreach (var card in cards)
+        {
+            _learningQueue.Enqueue(card.Id);
+            _sessionMastery[card.Id] = 0;
+        }
+
+        SessionTotalCount = cards.Count;
+        CurrentLearningCard = DequeueNextLearningCard();
+    }
+
+    private Card? DequeueNextLearningCard()
+    {
+        while (_learningQueue.TryDequeue(out var cardId))
+        {
+            var card = _allCards.FirstOrDefault(x => x.Id == cardId && !x.IsDeleted);
+            if (card is not null)
+            {
+                return card;
+            }
+        }
+
+        return null;
+    }
+
+    private void ReplaceCard(Card updatedCard)
+    {
+        ReplaceInList(_allCards, updatedCard);
+        ReplaceInList(VisibleCards, updatedCard);
+    }
+
+    private static void ReplaceInList(List<Card> cards, Card updatedCard)
+    {
+        var index = cards.FindIndex(card => card.Id == updatedCard.Id);
+        if (index >= 0)
+        {
+            cards[index] = updatedCard;
+        }
+    }
+
+    private async Task CompleteModuleIfMasteredAsync(CancellationToken cancellationToken)
+    {
+        if (Module is null || _allCards.Count == 0)
+        {
+            return;
+        }
+
+        if (_allCards.All(card => card.Interval >= SpacedRepetitionScheduler.MasteredStage))
+        {
+            Module.LearningCompletedAt ??= DateTimeOffset.UtcNow;
+            await library.SaveModuleLearningProgressAsync(Module, cancellationToken);
+        }
+    }
 }
+
+public sealed record LearningStageStat(int Stage, int Count);

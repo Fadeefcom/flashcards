@@ -17,12 +17,6 @@ public sealed class StudyService(ILocalStorageService storage, SpacedRepetitionS
 
         scheduler.ApplyReview(card, grade, DateTimeOffset.UtcNow);
         await storage.UpsertCardAsync(card, cancellationToken);
-        await storage.EnqueueSyncAsync(new SyncQueueItem
-        {
-            EntityId = card.Id,
-            EntityType = SyncEntityType.Card,
-            Operation = SyncOperation.Update
-        }, cancellationToken);
         return card;
     }
 }

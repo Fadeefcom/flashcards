@@ -200,6 +200,39 @@ p, small {
     background: #2f6f62;
 }
 
+.stage-chart {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    align-items: end;
+    gap: .45rem;
+    height: 4.4rem;
+}
+
+.stage-chart span {
+    display: grid;
+    grid-template-rows: 1fr auto;
+    align-items: end;
+    gap: .25rem;
+    min-width: 0;
+}
+
+.stage-chart i {
+    display: block;
+    width: 100%;
+    min-height: .35rem;
+    border-radius: 6px 6px 2px 2px;
+    background: #2f6f62;
+    opacity: .35;
+}
+
+.stage-chart span:last-child i {
+    opacity: 1;
+}
+
+.stage-chart small {
+    text-align: center;
+}
+
 .sync-strip {
     justify-content: space-between;
     gap: .7rem;
@@ -295,8 +328,11 @@ p, small {
     gap: 1rem;
 }
 
-.learning-card {
+.learning-card-wrap {
     position: relative;
+}
+
+.learning-card {
     display: grid;
     place-items: center;
     width: 100%;
