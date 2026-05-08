@@ -31,7 +31,18 @@ public sealed record ModuleSyncResponse(
     Guid ModuleId,
     DateTimeOffset ServerTimestamp,
     DateTimeOffset? ModuleLastUpdated,
+    ModuleInfo ModuleInfo,
     IReadOnlyList<ModuleCardSyncItem> Cards);
+
+public sealed record ModuleInfo(
+    Guid ModuleId,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset LastUpdated,
+    int TotalCards,
+    int ActiveCards,
+    int DeletedCards,
+    int TotalWords,
+    string SyncVersion);
 
 public sealed record ModuleCardSyncItem(
     Guid Id,

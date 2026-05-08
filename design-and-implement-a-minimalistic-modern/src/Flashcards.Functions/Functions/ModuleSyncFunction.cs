@@ -63,6 +63,11 @@ public sealed class ModuleSyncFunction
 
         DateTimeOffset? moduleLastUpdated = remoteCards.Count == 0 ? null : remoteCards.Max(card => card.LastUpdated);
         var responseCards = await EnrichAudioStateAsync(container, remoteCards, cancellationToken);
+        var moduleInfo = ModuleInfoFunction.CreateModuleInfo(request.ModuleId, remoteCards);
+        await ModuleInfoFunction.WriteModuleInfoAsync(
+            container.GetBlobClient(ModuleInfoFunction.GetModuleInfoBlobName(request.ModuleId)),
+            moduleInfo,
+            cancellationToken);
 
         _logger.LogInformation("Synced module {ModuleId}. Returned {CardCount} card(s).", request.ModuleId, responseCards.Count);
 
@@ -71,6 +76,7 @@ public sealed class ModuleSyncFunction
             request.ModuleId,
             DateTimeOffset.UtcNow,
             moduleLastUpdated,
+            moduleInfo,
             responseCards), cancellationToken);
         return response;
     }

@@ -71,7 +71,6 @@ public sealed class SyncService(
 
             var syncedModules = 0;
             var changedCards = 0;
-            var audioUpdated = 0;
             var lastSyncAt = await storage.GetLastSyncAtAsync(cancellationToken);
 
             var updatedFolders = await storage.GetFoldersAsync(cancellationToken);
@@ -92,13 +91,13 @@ public sealed class SyncService(
 
                     var result = await ReconcileModuleCardsAsync(functionKey, module, localCards, snapshot.Cards, cancellationToken);
                     changedCards += result.ChangedCards;
-                    audioUpdated += result.AudioUpdated;
                     syncedModules++;
                 }
             }
 
+            await ClearSyncQueueAsync(cancellationToken);
             await storage.SetLastSyncAtAsync(DateTimeOffset.UtcNow, cancellationToken);
-            return new SyncResult(true, $"Synced {syncedModules} modules, {changedCards} cards, {audioUpdated} audio files");
+            return new SyncResult(true, $"Synced {syncedModules} modules and {changedCards} cards");
         }
         catch (Exception globalEx)
         {
@@ -170,7 +169,6 @@ public sealed class SyncService(
         CancellationToken cancellationToken)
     {
         var changedCards = 0;
-        var audioUpdated = 0;
         var localById = localCards.ToDictionary(card => card.Id);
 
         foreach (var cloudCard in cloudCards)
@@ -214,40 +212,13 @@ public sealed class SyncService(
                 if (cloudCard.AudioStatus.Equals("Ready", StringComparison.OrdinalIgnoreCase) &&
                     !string.IsNullOrWhiteSpace(cloudCard.AudioUrl))
                 {
-                    var shouldDownloadAudio = string.IsNullOrWhiteSpace(card.AudioLocalPath) ||
-                        !await audioFileStore.ExistsAsync(card.AudioLocalPath, cancellationToken) ||
-                        cloudCard.AudioUpdatedAt >= card.UpdatedAt;
-
-                    if (shouldDownloadAudio)
-                    {
-                        try
-                        {
-                            await using var audioStream = await cloudSyncClient.DownloadAudioAsync(functionKey, cloudCard.AudioUrl, cancellationToken);
-                            card.AudioLocalPath = await audioFileStore.SaveAsync(card.Id, audioStream, cancellationToken);
-                            card.AudioStatus = AudioStatus.Ready;
-                            audioUpdated++;
-                        }
-                        catch (Exception audioEx)
-                        {
-                            Console.WriteLine($"Audio failed for {card.Id}: {audioEx.Message}");
-                        }
-                    }
-                }
-                else if (card.AudioStatus != AudioStatus.Ready)
-                {
-                    try
-                    {
-                        await using var generatedAudio = await cloudSyncClient.GenerateSpeechAsync(functionKey, card.Id, card.FrontText, cancellationToken);
-                        card.AudioLocalPath = await audioFileStore.SaveAsync(card.Id, generatedAudio, cancellationToken);
-                        card.AudioStatus = AudioStatus.Ready;
-                        audioUpdated++;
-                    }
-                    catch (Exception audioEx)
-                    {
-                        Console.WriteLine($"Audio failed for {card.Id}: {audioEx.Message}");
-                    }
+                    card.AudioStatus = string.IsNullOrWhiteSpace(card.AudioLocalPath) ||
+                        !await audioFileStore.ExistsAsync(card.AudioLocalPath, cancellationToken)
+                            ? AudioStatus.Pending
+                            : AudioStatus.Ready;
                 }
 
+                card.IsDirty = false;
                 await storage.UpsertCardAsync(card, cancellationToken);
             }
             catch (Exception)
@@ -256,10 +227,19 @@ public sealed class SyncService(
             }
         }
 
-        return new ReconcileResult(changedCards, audioUpdated);
+        return new ReconcileResult(changedCards);
+    }
+
+    private async Task ClearSyncQueueAsync(CancellationToken cancellationToken)
+    {
+        var pendingItems = await storage.GetPendingSyncItemsAsync(cancellationToken);
+        foreach (var item in pendingItems)
+        {
+            await storage.RemoveSyncItemAsync(item.Id, cancellationToken);
+        }
     }
 }
 
 public sealed record SyncResult(bool Success, string Message);
 
-sealed record ReconcileResult(int ChangedCards, int AudioUpdated);
+sealed record ReconcileResult(int ChangedCards);
