@@ -46,7 +46,7 @@
             <div class="sync-strip">
                 <span class="sync-dot @ViewModel.SyncStatus.ToString().ToLowerInvariant()"></span>
                 <span>@SyncLabel</span>
-                <button @onclick="ForceSync" title="Sync">↻</button>
+                <button class="sync-button @(ViewModel.SyncStatus == ModuleSyncStatus.Syncing ? "is-loading" : null)" @onclick="ForceSync" disabled="@(ViewModel.SyncStatus == ModuleSyncStatus.Syncing)" title="Sync">↻</button>
             </div>
         </header>
         
@@ -64,8 +64,8 @@
         <section class="cards-list" @onscroll="HandleScroll">
             @foreach (var card in ViewModel.VisibleCards)
             {
-                <article class="editable-card">
-                    <button class="delete-card-button" @onclick="() => DeleteCard(card)" title="Delete card">×</button>
+                <article class="editable-card @(DeletingCardIds.Contains(card.Id) ? "is-deleting" : null)">
+                    <button class="delete-card-button" @onclick="() => DeleteCard(card)" disabled="@DeletingCardIds.Contains(card.Id)" title="Delete card">×</button>
                     <input class="card-front" placeholder="Front" @bind="card.FrontText" @bind:event="oninput" @onblur="() => SaveCard(card)" />
                     <div class="card-divider"></div>
                     <textarea class="card-back" placeholder="Back" @bind="card.BackText" @bind:event="oninput" @onblur="() => SaveCard(card)"></textarea>
@@ -100,7 +100,7 @@
                     <button class="learning-card @(ViewModel.IsAnswerVisible ? "flipped" : null)" @onclick="FlipCard">
                         <span>@(ViewModel.IsAnswerVisible ? ViewModel.AnswerText(ViewModel.CurrentLearningCard) : ViewModel.PromptText(ViewModel.CurrentLearningCard))</span>
                     </button>
-                    <button class="audio-icon" @onclick="PlayAudio" title="Play audio">♪</button>
+                    <button class="audio-icon @(IsAudioLoading ? "is-loading" : null)" @onclick="PlayAudio" disabled="@IsAudioLoading" title="Play audio">♪</button>
                 </div>
                 <div class="grade-grid">
                     <button class="again" @onclick="() => Grade(ReviewGrade.Again)">Again</button>
@@ -132,6 +132,8 @@
     private ElementReference ScrollSentinel;
     private DotNetObjectReference<ModuleDetails>? ObjectReference;
     private IJSObjectReference? InfiniteScrollObserver;
+    private readonly HashSet<Guid> DeletingCardIds = [];
+    private bool IsAudioLoading;
 
     private string SyncLabel => ViewModel.SyncStatus switch
     {
@@ -180,7 +182,11 @@
 
     private async Task DeleteCard(Card card)
     {
+        DeletingCardIds.Add(card.Id);
+        StateHasChanged();
+        await Task.Delay(180);
         await ViewModel.DeleteCardAsync(card, CancellationToken.None);
+        DeletingCardIds.Remove(card.Id);
         StateHasChanged();
     }
 
@@ -216,8 +222,18 @@
 
     private async Task PlayAudio()
     {
-        await Js.InvokeVoidAsync("recallCraft.primeAudio");
-        await ViewModel.PlayAudioAsync(CancellationToken.None);
+        IsAudioLoading = true;
+        StateHasChanged();
+        try
+        {
+            await Js.InvokeVoidAsync("recallCraft.primeAudio");
+            await ViewModel.PlayAudioAsync(CancellationToken.None);
+        }
+        finally
+        {
+            IsAudioLoading = false;
+            StateHasChanged();
+        }
     }
 
     private async Task Grade(ReviewGrade grade)

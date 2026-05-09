@@ -13,7 +13,7 @@
             <h1>Flashcards</h1>
             <p>@Status</p>
         </div>
-        <button class="icon-button" @onclick="ForceSync" title="Sync">↻</button>
+        <button class="icon-button sync-button @(_isSyncing ? "is-loading" : null)" @onclick="ForceSync" disabled="@_isSyncing" title="Sync">↻</button>
     </header>
 
     @if (!HasApiKey)
@@ -84,6 +84,7 @@
 
 @code {
     private bool HasApiKey;
+    private bool _isSyncing;
     private bool _isPulling;
     private string ApiKey = string.Empty;
     private string FunctionBaseUrl = string.Empty;
@@ -123,12 +124,27 @@
 
     private async Task ForceSync()
     {
-        var result = await SyncScheduler.ForceSync(CancellationToken.None);
-        Status = result.Message;
-        await LoadFolders();
-        if (CurrentFolder is not null)
+        if (_isSyncing)
         {
-            Modules = (await Library.GetModulesAsync(CurrentFolder.Id, CancellationToken.None)).ToList();
+            return;
+        }
+
+        _isSyncing = true;
+        Status = "Syncing";
+        StateHasChanged();
+        try
+        {
+            var result = await SyncScheduler.ForceSync(CancellationToken.None);
+            Status = result.Message;
+            await LoadFolders();
+            if (CurrentFolder is not null)
+            {
+                Modules = (await Library.GetModulesAsync(CurrentFolder.Id, CancellationToken.None)).ToList();
+            }
+        }
+        finally
+        {
+            _isSyncing = false;
         }
     }
 
